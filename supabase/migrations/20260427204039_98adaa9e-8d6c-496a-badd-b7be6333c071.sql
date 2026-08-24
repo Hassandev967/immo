@@ -1,0 +1,1 @@
+ALTER VIEW public.v_locataires_classification SET (security_invoker = true);

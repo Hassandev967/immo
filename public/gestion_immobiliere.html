@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ImmoCI — Système Intégré de Gestion Immobilière</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-2: #1e293b;
+    --panel: #ffffff;
+    --panel-soft: #f8fafc;
+    --text: #0f172a;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --primary: #ea580c;     /* orange CI accent */
+    --primary-2: #f97316;
+    --green: #16a34a;
+    --green-soft: #dcfce7;
+    --amber: #d97706;
+    --amber-soft: #fef3c7;
+    --red: #dc2626;
+    --red-soft: #fee2e2;
+    --blue: #2563eb;
+    --blue-soft: #dbeafe;
+    --shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--text); background: #f1f5f9; }
+  a { color: inherit; text-decoration: none; }
+
+  /* Layout */
+  .app { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+  aside.sidebar {
+    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0;
+    padding: 22px 16px;
+    position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 22px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 16px;}
+  .brand-logo { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--primary), var(--primary-2)); display: grid; place-items: center; font-weight: 800; color: white; }
+  .brand-text { font-weight: 700; font-size: 15px; line-height: 1.1; }
+  .brand-text small { display: block; font-weight: 400; font-size: 11px; color: #94a3b8; margin-top: 2px;}
+  .nav-section { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin: 16px 8px 6px; }
+  .nav a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px;
+    color: #cbd5e1; font-size: 14px; cursor: pointer;
+    transition: all .15s ease;
+  }
+  .nav a:hover { background: rgba(255,255,255,.05); color: #fff; }
+  .nav a.active { background: rgba(249,115,22,.15); color: #fff; box-shadow: inset 3px 0 0 var(--primary);}
+  .nav a .ico { width: 18px; text-align: center; }
+  .badge-side { margin-left: auto; background: var(--red); color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600;}
+
+  main { padding: 0; }
+  header.topbar {
+    background: #fff; border-bottom: 1px solid var(--border);
+    padding: 14px 28px; display: flex; align-items: center; gap: 18px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header.topbar h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  header.topbar .crumb { color: var(--muted); font-size: 13px; }
+  .topbar .search { flex: 1; max-width: 420px; margin-left: 24px;}
+  .topbar input { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--panel-soft); }
+  .topbar .user { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #f97316, #db2777); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px;}
+  .user-info { font-size: 13px; line-height: 1.2; }
+  .user-info small { color: var(--muted); font-size: 11px; }
+
+  .container { padding: 24px 28px 60px; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Cards / KPIs */
+  .grid { display: grid; gap: 16px; }
+  .grid.kpi { grid-template-columns: repeat(4, 1fr); margin-bottom: 22px;}
+  .grid.cols-2 { grid-template-columns: 2fr 1fr; }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 1100px) { .grid.kpi { grid-template-columns: repeat(2, 1fr);} .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr;} }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: var(--shadow);}
+  .card h3 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .04em;}
+  .card .value { font-size: 26px; font-weight: 700; }
+  .card .delta { font-size: 12px; margin-top: 4px;}
+  .delta.up { color: var(--green); }
+  .delta.down { color: var(--red); }
+  .card-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;}
+  .card-title h2 { font-size: 15px; font-weight: 700; margin: 0;}
+  .card-title .link { color: var(--primary); font-size: 12px; cursor: pointer; font-weight: 600;}
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px;}
+  th { text-align: left; font-weight: 600; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; text-transform: uppercase; letter-spacing: .04em;}
+  td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle;}
+  tr:last-child td { border-bottom: none;}
+  tr:hover td { background: var(--panel-soft);}
+
+  /* Tags / status */
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;}
+  .tag.green { background: var(--green-soft); color: var(--green);}
+  .tag.amber { background: var(--amber-soft); color: var(--amber);}
+  .tag.red { background: var(--red-soft); color: var(--red);}
+  .tag.blue { background: var(--blue-soft); color: var(--blue);}
+  .tag.gray { background: #f1f5f9; color: var(--muted);}
+
+  .btn { background: var(--primary); color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s ease;}
+  .btn:hover { background: var(--primary-2); transform: translateY(-1px);}
+  .btn.secondary { background: #fff; color: var(--text); border: 1px solid var(--border);}
+  .btn.danger { background: var(--red);}
+  .btn.sm { padding: 5px 10px; font-size: 12px;}
+
+  /* Workflow / timeline */
+  .workflow { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap;}
+  .step { flex: 1; min-width: 180px; background: var(--panel-soft); border: 1px solid var(--border); border-radius: 10px; padding: 14px; position: relative;}
+  .step .num { width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: white; display: grid; place-items: center; font-weight: 700; font-size: 12px; margin-bottom: 8px;}
+  .step h4 { margin: 0 0 4px; font-size: 13px;}
+  .step p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4;}
+
+  .timeline { position: relative; padding-left: 24px;}
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 4px; bottom: 4px; width: 2px; background: var(--border);}
+  .tl-item { position: relative; padding-bottom: 16px;}
+  .tl-item::before { content: ''; position: absolute; left: -20px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 2px solid #fff; box-shadow: 0 0 0 2px var(--primary);}
+  .tl-item.done::before { background: var(--green); box-shadow: 0 0 0 2px var(--green);}
+  .tl-item.pending::before { background: var(--border); box-shadow: 0 0 0 2px var(--border);}
+  .tl-item h5 { margin: 0; font-size: 13px;}
+  .tl-item p { margin: 2px 0 0; font-size: 12px; color: var(--muted);}
+
+  /* Alerts */
+  .alert { padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start;}
+  .alert.info { background: var(--blue-soft); color: #1e40af; border-left: 4px solid var(--blue);}
+  .alert.warn { background: var(--amber-soft); color: #92400e; border-left: 4px solid var(--amber);}
+  .alert.danger { background: var(--red-soft); color: #991b1b; border-left: 4px solid var(--red);}
+
+  .module-banner { background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; border-radius: 12px; padding: 22px; margin-bottom: 22px; display: flex; align-items: center; gap: 16px;}
+  .module-banner .ico { font-size: 32px;}
+  .module-banner h2 { margin: 0; font-size: 20px;}
+  .module-banner p { margin: 4px 0 0; opacity: .9; font-size: 13px;}
+
+  .filter-bar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;}
+  .filter-bar select, .filter-bar input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; background: #fff;}
+
+  .legal-rule { background: var(--blue-soft); border-left: 4px solid var(--blue); padding: 10px 12px; border-radius: 6px; font-size: 12px; color: #1e3a8a; margin-bottom: 10px;}
+  .legal-rule strong { color: #1e40af;}
+
+  /* Bar chart simple */
+  .bars { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding: 10px 0;}
+  .bar { flex: 1; background: linear-gradient(180deg, var(--primary-2), var(--primary)); border-radius: 6px 6px 0 0; position: relative; min-height: 4px; transition: all .3s;}
+  .bar:hover { opacity: .85;}
+  .bar-label { text-align: center; font-size: 11px; color: var(--muted); margin-top: 6px;}
+  .bar-col { display: flex; flex-direction: column; flex: 1;}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">IC</div>
+      <div class="brand-text">ImmoCI<small>Gestion immobilière · CI</small></div>
+    </div>
+
+    <div class="nav-section">Tableau de bord</div>
+    <div class="nav">
+      <a class="active" data-page="dashboard"><span class="ico">📊</span> Vue d'ensemble</a>
+    </div>
+
+    <div class="nav-section">Services</div>
+    <div class="nav">
+      <a data-page="commercial"><span class="ico">🏢</span> Service Commercial</a>
+      <a data-page="caisse"><span class="ico">💼</span> Caisse / Secrétariat</a>
+      <a data-page="recouvrement"><span class="ico">⚠️</span> Recouvrement <span class="badge-side">12</span></a>
+      <a data-page="juridique"><span class="ico">⚖️</span> Juridique <span class="badge-side">4</span></a>
+      <a data-page="proprietaires"><span class="ico">🏠</span> Propriétaires</a>
+    </div>
+
+    <div class="nav-section">Référentiels</div>
+    <div class="nav">
+      <a data-page="biens"><span class="ico">🗝️</span> Parc immobilier</a>
+      <a data-page="conformite"><span class="ico">📜</span> Conformité légale</a>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <div class="crumb" id="crumb">Accueil</div>
+        <h1 id="title">Tableau de bord</h1>
+      </div>
+      <div class="search"><input placeholder="Rechercher un locataire, propriétaire, bien…"/></div>
+      <div class="user">
+        <div class="user-info" style="text-align:right;">Aïssata Koné<br/><small>Directrice — Abidjan</small></div>
+        <div class="avatar">AK</div>
+      </div>
+    </header>
+
+    <div class="container">
+
+      <!-- DASHBOARD -->
+      <section class="page active" id="page-dashboard">
+        <div class="grid kpi">
+          <div class="card"><h3>Biens en gestion</h3><div class="value">248</div><div class="delta up">▲ 12 ce mois</div></div>
+          <div class="card"><h3>Taux d'occupation</h3><div class="value">96,4%</div><div class="delta up">▲ Cible &gt; 95%</div></div>
+          <div class="card"><h3>Loyers encaissés (avril)</h3><div class="value">82,4 M FCFA</div><div class="delta up">▲ 8% vs mars</div></div>
+          <div class="card"><h3>Créances en cours</h3><div class="value" style="color:var(--red)">14,2 M FCFA</div><div class="delta down">▼ 12 dossiers actifs</div></div>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <div class="card-title"><h2>Encaissements des 6 derniers mois (M FCFA)</h2></div>
+            <div class="bars">
+              <div class="bar-col"><div class="bar" style="height:60%"></div><div class="bar-label">Nov</div></div>
+              <div class="bar-col"><div class="bar" style="height:72%"></div><div class="bar-label">Déc</div></div>
+              <div class="bar-col"><div class="bar" style="height:65%"></div><div class="bar-label">Jan</div></div>
+              <div class="bar-col"><div class="bar" style="height:80%"></div><div class="bar-label">Fév</div></div>
+              <div class="bar-col"><div class="bar" style="height:75%"></div><div class="bar-label">Mar</div></div>
+              <div class="bar-col"><div class="bar" style="height:95%"></div><div class="bar-label">Avr</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><h2>Alertes prioritaires</h2></div>
+            <div class="alert danger">🚨 <div><strong>3 dossiers</strong> à transférer au juridique aujourd'hui (3+ mois d'impayé)</div></div>
+            <div class="alert warn">⏰ <div><strong>7 baux</strong> arrivent à échéance dans &lt; 30 jours</div></div>
+            <div class="alert info">📩 <div><strong>15 relances</strong> automatiques programmées ce soir (DE+3)</div></div>
+          </div>
+        </div>
+
+        <div class="grid cols-2" style="margin-top:16px;">
+          <div class="card">
+            <div class="card-title"><h2>Flux principal — Entrée d'un nouveau locataire</h2></div>
+            <div class="workflow">
+              <div class="step"><div class="num">1</div><h4>Service Commercial</h4><p>Présentation des biens, constitution du dossier, facture d'entrée.</p></div>
+              <div class="step"><div class="num">2</div><h4>Caisse / Secrétariat</h4><p>Encaissement, rédaction du bail, programmation du renouvellement.</p></div>
+              <div class="step"><div class="num">3</div><h4>Activation suivi</h4><p>Surveillance automatique des paiements mensuels.</p></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><h2>Indicateurs clés (KPIs)</h2></div>
+            <table>
+              <tr><td>Taux d'occupation</td><td><span class="tag green">96,4%</span></td><td style="color:var(--muted)">Cible &gt; 95%</td></tr>
+              <tr><td>Délai de relocation</td><td><span class="tag green">3,2 j</span></td><td style="color:var(--muted)">Cible &lt; 5 j</td></tr>
+              <tr><td>Taux de recouvrement</td><td><span class="tag green">92%</span></td><td style="color:var(--muted)">Cible &gt; 90%</td></tr>
+              <tr><td>Délai moyen recouvrement</td><td><span class="tag amber">28 j</span></td><td style="color:var(--muted)">Cible &lt; 30 j</td></tr>
+              <tr><td>Taux d'escalade juridique</td><td><span class="tag green">3,8%</span></td><td style="color:var(--muted)">Cible &lt; 5%</td></tr>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- COMMERCIAL -->
+      <section class="page" id="page-commercial">
+        <div class="module-banner"><div class="ico">🏢</div><div><h2>Service Commercial</h2><p>Acquisition, placement des locataires et facturation d'entrée</p></div></div>
+
+        <div class="grid kpi">
+          <div class="card"><h3>Prospects actifs</h3><div class="value">34</div></div>
+          <div class="card"><h3>Visites cette semaine</h3><div class="value">21</div></div>
+          <div class="card"><h3>Biens disponibles</h3><div class="value">9</div></div>
+          <div class="card"><h3>Factures d'entrée (mois)</h3><div class="value">12</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><h2>Prospects en cours</h2><button class="btn">+ Nouveau prospect</button></div>
+          <table>
+            <thead><tr><th>Prospect</th><th>Bien souhaité</th><th>Budget</th><th>Visite</th><th>Statut</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>Kouassi Yao</td><td>Appartement 3p — Cocody</td><td>250 000 FCFA</td><td>28/04</td><td><span class="tag amber">Visite planifiée</span></td><td><button class="btn sm">Dossier</button></td></tr>
+              <tr><td>Mariam Touré</td><td>Studio — Marcory</td><td>120 000 FCFA</td><td>26/04</td><td><span class="tag blue">Dossier complet</span></td><td><button class="btn sm">Facture entrée</button></td></tr>
+              <tr><td>Jean-Pierre Koffi</td><td>Villa — Riviera</td><td>650 000 FCFA</td><td>30/04</td><td><span class="tag gray">Premier contact</span></td><td><button class="btn sm">Dossier</button></td></tr>
+              <tr><td>Aïcha Diallo</td><td>Appartement 2p — Plateau</td><td>180 000 FCFA</td><td>25/04</td><td><span class="tag green">Validé</span></td><td><button class="btn sm">→ Caisse</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="card-title"><h2>Facture d'entrée — Aperçu (Mariam Touré)</h2><button class="btn">Soumettre au client</button></div>
+          <div class="legal-rule">⚖️ <strong>Loi n°2018-575 art. 22 :</strong> caution plafonnée à <strong>2 mois maximum</strong>. Le système bloque toute saisie au-delà.</div>
+          <table>
+            <tr><td>Loyer d'avance (2 mois)</td><td style="text-align:right;">240 000 FCFA</td></tr>
+            <tr><td>Caution (2 mois — max légal)</td><td style="text-align:right;">240 000 FCFA</td></tr>
+            <tr><td>Honoraires d'agence</td><td style="text-align:right;">120 000 FCFA</td></tr>
+            <tr><td><strong>TOTAL à régler à la caisse</strong></td><td style="text-align:right;"><strong>600 000 FCFA</strong></td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- CAISSE -->
+      <section class="page" id="page-caisse">
+        <div class="module-banner" style="background: linear-gradient(135deg, #16a34a, #22c55e);"><div class="ico">💼</div><div><h2>Caisse / Secrétariat</h2><p>Encaissements, rédaction des baux et émission des quittances</p></div></div>
+
+        <div class="grid kpi">
+          <div class="card"><h3>Encaissements jour</h3><div class="value">4,2 M FCFA</div></div>
+          <div class="card"><h3>Quittances émises</h3><div class="value">87</div></div>
+          <div class="card"><h3>Baux en attente</h3><div class="value">3</div></div>
+          <div class="card"><h3>Renouvellements (30j)</h3><div class="value">7</div></div>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <div class="card-title"><h2>Encaissements récents</h2><button class="btn">+ Nouvel encaissement</button></div>
+            <table>
+              <thead><tr><th>Locataire</th><th>Type</th><th>Montant</th><th>Mode</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>Aïcha Diallo</td><td>Facture d'entrée</td><td>540 000</td><td><span class="tag blue">Wave</span></td><td><button class="btn sm secondary">Quittance</button></td></tr>
+                <tr><td>Bakary Soro</td><td>Loyer Avril</td><td>180 000</td><td><span class="tag blue">Orange Money</span></td><td><button class="btn sm secondary">Quittance</button></td></tr>
+                <tr><td>Fatou Bamba</td><td>Loyer Avril</td><td>220 000</td><td><span class="tag gray">Espèces</span></td><td><button class="btn sm secondary">Quittance</button></td></tr>
+                <tr><td>Issouf Coulibaly</td><td>Loyer Avril</td><td>300 000</td><td><span class="tag blue">MTN Money</span></td><td><button class="btn sm secondary">Quittance</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title"><h2>Renouvellements à venir</h2></div>
+            <div class="timeline">
+              <div class="tl-item"><h5>Bail Kouadio (Marcory)</h5><p>Échéance dans 8 jours · 150 000 FCFA</p></div>
+              <div class="tl-item"><h5>Bail N'Guessan (Plateau)</h5><p>Échéance dans 14 jours · 280 000 FCFA</p></div>
+              <div class="tl-item pending"><h5>Bail Adjoua (Cocody)</h5><p>Échéance dans 22 jours · 350 000 FCFA</p></div>
+              <div class="tl-item pending"><h5>Bail Traoré (Yopougon)</h5><p>Échéance dans 28 jours · 130 000 FCFA</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RECOUVREMENT -->
+      <section class="page" id="page-recouvrement">
+        <div class="module-banner" style="background: linear-gradient(135deg, #d97706, #f59e0b);"><div class="ico">⚠️</div><div><h2>Service Recouvrement</h2><p>Module critique — détection proactive des impayés et relances multicanal</p></div></div>
+
+        <div class="grid kpi">
+          <div class="card"><h3>Impayés actifs</h3><div class="value" style="color:var(--red)">12</div></div>
+          <div class="card"><h3>Montant total dû</h3><div class="value" style="color:var(--red)">14,2 M FCFA</div></div>
+          <div class="card"><h3>Relances envoyées (mois)</h3><div class="value">86</div></div>
+          <div class="card"><h3>Régularisés (mois)</h3><div class="value" style="color:var(--green)">19</div></div>
+        </div>
+
+        <div class="alert info">📅 <div>Date d'Échéance par défaut : <strong>05 du mois</strong>. Pour les baux signés après le 5, la DE est ajustée à la date d'anniversaire d'entrée (prorata temporis).</div></div>
+
+        <div class="card">
+          <div class="card-title"><h2>Tableau de bord des impayés</h2>
+            <div><button class="btn secondary sm">Exporter</button> <button class="btn sm">Lancer relances</button></div>
+          </div>
+          <div class="filter-bar">
+            <select><option>Tous les niveaux</option><option>1 mois</option><option>2 mois</option><option>3+ mois</option></select>
+            <select><option>Toutes zones</option><option>Cocody</option><option>Plateau</option><option>Yopougon</option></select>
+            <input placeholder="Rechercher locataire…"/>
+          </div>
+          <table>
+            <thead><tr><th>Locataire</th><th>Bien</th><th>Montant dû</th><th>Ancienneté</th><th>Dernière relance</th><th>Statut</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>Sékou Bamba</td><td>App. — Cocody Angré</td><td>540 000</td><td><span class="tag red">3 mois</span></td><td>Mise en demeure 22/04</td><td><span class="tag red">→ Juridique</span></td><td><button class="btn sm danger">Escalader</button></td></tr>
+              <tr><td>Pauline Kouamé</td><td>Studio — Marcory</td><td>360 000</td><td><span class="tag red">3 mois</span></td><td>SMS+WhatsApp 20/04</td><td><span class="tag red">→ Juridique</span></td><td><button class="btn sm danger">Escalader</button></td></tr>
+              <tr><td>Yao Konan</td><td>Villa — Riviera 3</td><td>1 300 000</td><td><span class="tag amber">2 mois</span></td><td>Appel 18/04</td><td><span class="tag amber">Relance 3</span></td><td><button class="btn sm">Relancer</button></td></tr>
+              <tr><td>Mariam Doumbia</td><td>App. — Plateau</td><td>280 000</td><td><span class="tag amber">2 mois</span></td><td>Email 15/04</td><td><span class="tag amber">Relance 2</span></td><td><button class="btn sm">Relancer</button></td></tr>
+              <tr><td>Ibrahim Touré</td><td>App. — Yopougon</td><td>140 000</td><td><span class="tag amber">1 mois</span></td><td>SMS 10/04</td><td><span class="tag amber">Relance 1</span></td><td><button class="btn sm">Relancer</button></td></tr>
+              <tr><td>Awa Konaté</td><td>Studio — Treichville</td><td>110 000</td><td><span class="tag amber">1 mois</span></td><td>Notification interne</td><td><span class="tag gray">Alerte J+1</span></td><td><button class="btn sm">Relancer</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="card-title"><h2>Calendrier de relances automatiques</h2></div>
+          <table>
+            <thead><tr><th>Jour</th><th>Canal</th><th>Contenu</th></tr></thead>
+            <tbody>
+              <tr><td><strong>DE + 1</strong></td><td><span class="tag gray">Notification interne</span></td><td>Alerte au service recouvrement (premier impayé)</td></tr>
+              <tr><td><strong>DE + 3</strong></td><td><span class="tag blue">SMS · Email · WhatsApp</span></td><td>1ère relance multicanal — rappel courtois</td></tr>
+              <tr><td><strong>DE + 10</strong></td><td><span class="tag amber">SMS + Email formel</span></td><td>2ème relance — ton plus ferme</td></tr>
+              <tr><td><strong>DE + 20</strong></td><td><span class="tag amber">Appel + courrier</span></td><td>3ème relance — contact direct</td></tr>
+              <tr><td><strong>DE + 60</strong></td><td><span class="tag red">Mise en demeure</span></td><td>Transfert automatique au service juridique</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- JURIDIQUE -->
+      <section class="page" id="page-juridique">
+        <div class="module-banner" style="background: linear-gradient(135deg, #7c2d12, #b91c1c);"><div class="ico">⚖️</div><div><h2>Service Juridique</h2><p>Mises en demeure, procédures d'expulsion et conformité OHADA</p></div></div>
+
+        <div class="grid kpi">
+          <div class="card"><h3>Dossiers contentieux</h3><div class="value">4</div></div>
+          <div class="card"><h3>Mises en demeure (mois)</h3><div class="value">3</div></div>
+          <div class="card"><h3>Procédures tribunal</h3><div class="value">2</div></div>
+          <div class="card"><h3>Délais critiques (J-5)</h3><div class="value" style="color:var(--red)">1</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><h2>Dossiers en procédure</h2><button class="btn">+ Nouvelle mise en demeure</button></div>
+          <table>
+            <thead><tr><th>Dossier</th><th>Locataire</th><th>Phase</th><th>Délai légal</th><th>Échéance</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>#JUR-2026-0042</td><td>Sékou Bamba</td><td><span class="tag amber">Mise en demeure</span></td><td>30 jours</td><td>22/05/2026</td><td><button class="btn sm">Détails</button></td></tr>
+              <tr><td>#JUR-2026-0041</td><td>Pauline Kouamé</td><td><span class="tag red">Délai régularisation</span></td><td>30 jours</td><td><span style="color:var(--red);font-weight:600">02/05 (J-5)</span></td><td><button class="btn sm danger">Saisir tribunal</button></td></tr>
+              <tr><td>#JUR-2026-0039</td><td>Désiré Kouassi</td><td><span class="tag blue">Saisine tribunal</span></td><td>—</td><td>Audience 12/05</td><td><button class="btn sm">Détails</button></td></tr>
+              <tr><td>#JUR-2026-0036</td><td>Léa Aké</td><td><span class="tag red">Délai de grâce</span></td><td>3 mois max</td><td>15/06/2026</td><td><button class="btn sm">Détails</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid cols-2" style="margin-top:16px;">
+          <div class="card">
+            <div class="card-title"><h2>Suivi procédure — #JUR-2026-0041</h2></div>
+            <div class="timeline">
+              <div class="tl-item done"><h5>Impayé constaté</h5><p>05/01/2026 · 3 mois cumulés</p></div>
+              <div class="tl-item done"><h5>Transfert recouvrement → juridique</h5><p>05/04/2026 · Auto. après 60j</p></div>
+              <div class="tl-item done"><h5>Mise en demeure envoyée</h5><p>07/04/2026 · Signifiée par commissaire de justice</p></div>
+              <div class="tl-item"><h5>Délai de régularisation (30 j)</h5><p>Échéance 07/05/2026 · ⚠️ Alerte J-5</p></div>
+              <div class="tl-item pending"><h5>Saisine du tribunal</h5><p>À programmer si non régularisé</p></div>
+              <div class="tl-item pending"><h5>Décision d'expulsion</h5><p>—</p></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><h2>Conformité légale appliquée</h2></div>
+            <div class="legal-rule"><strong>Loi 2018-575 art. 22 :</strong> caution plafonnée à 2 mois.</div>
+            <div class="legal-rule"><strong>Code Construction art. 447 :</strong> pas de prorogation du délai de grâce après expiration.</div>
+            <div class="legal-rule"><strong>Mise en demeure obligatoire</strong> avant toute saisine — bloquée par le système si absente.</div>
+            <div class="legal-rule"><strong>OHADA</strong> : procédure simplifiée de recouvrement intégrée.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROPRIETAIRES -->
+      <section class="page" id="page-proprietaires">
+        <div class="module-banner" style="background: linear-gradient(135deg, #1e40af, #3b82f6);"><div class="ico">🏠</div><div><h2>Gestion des Propriétaires (Mandants)</h2><p>Comptes mandants, reddition des comptes et reversements</p></div></div>
+
+        <div class="alert info">🔒 <div><strong>Étanchéité totale :</strong> les données financières des propriétaires sont isolées des modules locataires au niveau de la base de données.</div></div>
+
+        <div class="grid kpi">
+          <div class="card"><h3>Propriétaires actifs</h3><div class="value">68</div></div>
+          <div class="card"><h3>À reverser ce mois</h3><div class="value">62,8 M FCFA</div></div>
+          <div class="card"><h3>Comptes-rendus en attente</h3><div class="value">11</div></div>
+          <div class="card"><h3>Travaux en cours</h3><div class="value">7</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><h2>Comptes mandants</h2><button class="btn">+ Nouveau mandat</button></div>
+          <table>
+            <thead><tr><th>Propriétaire</th><th>Biens</th><th>Occupés</th><th>Loyers encaissés</th><th>Honoraires</th><th>Net à reverser</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>M. Konan Bertin</td><td>5</td><td>5/5</td><td>1 250 000</td><td>125 000</td><td><strong>1 125 000</strong></td><td><button class="btn sm">Compte-rendu</button></td></tr>
+              <tr><td>SCI Riviera Invest</td><td>12</td><td>11/12</td><td>4 200 000</td><td>420 000</td><td><strong>3 780 000</strong></td><td><button class="btn sm">Compte-rendu</button></td></tr>
+              <tr><td>Mme Aké Solange</td><td>3</td><td>3/3</td><td>650 000</td><td>65 000</td><td><strong>585 000</strong></td><td><button class="btn sm">Compte-rendu</button></td></tr>
+              <tr><td>Diaspora Holding</td><td>8</td><td>7/8</td><td>2 100 000</td><td>210 000</td><td><strong>1 890 000</strong></td><td><button class="btn sm">Compte-rendu</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- BIENS -->
+      <section class="page" id="page-biens">
+        <div class="module-banner" style="background: linear-gradient(135deg, #0f766e, #14b8a6);"><div class="ico">🗝️</div><div><h2>Parc immobilier</h2><p>Référentiel des biens en gestion</p></div></div>
+        <div class="card">
+          <div class="filter-bar">
+            <select><option>Tous types</option><option>Studio</option><option>Appartement</option><option>Villa</option></select>
+            <select><option>Tous statuts</option><option>Occupé</option><option>Vacant</option><option>Travaux</option></select>
+            <select><option>Toutes communes</option><option>Cocody</option><option>Plateau</option><option>Marcory</option></select>
+            <button class="btn">+ Ajouter un bien</button>
+          </div>
+          <table>
+            <thead><tr><th>Référence</th><th>Type</th><th>Localisation</th><th>Loyer</th><th>Propriétaire</th><th>Statut</th></tr></thead>
+            <tbody>
+              <tr><td>BIEN-0142</td><td>Appartement 3p</td><td>Cocody Angré</td><td>250 000</td><td>Konan Bertin</td><td><span class="tag green">Occupé</span></td></tr>
+              <tr><td>BIEN-0143</td><td>Studio</td><td>Marcory Zone 4</td><td>120 000</td><td>SCI Riviera Invest</td><td><span class="tag amber">Vacant</span></td></tr>
+              <tr><td>BIEN-0144</td><td>Villa 5p</td><td>Riviera 3</td><td>650 000</td><td>Diaspora Holding</td><td><span class="tag green">Occupé</span></td></tr>
+              <tr><td>BIEN-0145</td><td>Appartement 2p</td><td>Plateau</td><td>180 000</td><td>Aké Solange</td><td><span class="tag blue">Travaux</span></td></tr>
+              <tr><td>BIEN-0146</td><td>Studio</td><td>Yopougon Niangon</td><td>90 000</td><td>Konan Bertin</td><td><span class="tag green">Occupé</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- CONFORMITE -->
+      <section class="page" id="page-conformite">
+        <div class="module-banner" style="background: linear-gradient(135deg, #1e3a8a, #2563eb);"><div class="ico">📜</div><div><h2>Conformité légale</h2><p>Règles métier intégrées au système — droit ivoirien</p></div></div>
+        <div class="card">
+          <div class="card-title"><h2>Règles automatiques appliquées</h2></div>
+          <table>
+            <thead><tr><th>Règle</th><th>Référence</th><th>Application système</th></tr></thead>
+            <tbody>
+              <tr><td>Caution maximum 2 mois</td><td>Loi 2018-575 art. 22</td><td>Blocage de saisie au-delà</td></tr>
+              <tr><td>Loyer d'avance maximum 2 mois</td><td>Loi 2018-575</td><td>Validation à la facturation</td></tr>
+              <tr><td>Mise en demeure préalable obligatoire</td><td>Procédure légale</td><td>Saisine tribunal bloquée sans MED</td></tr>
+              <tr><td>Délai de régularisation 30 jours</td><td>Loi 2018-575</td><td>Compte à rebours + alerte J-5</td></tr>
+              <tr><td>Pas de prorogation du délai de grâce</td><td>Code Construction art. 447</td><td>Blocage extension après expiration</td></tr>
+              <tr><td>Procédure simplifiée OHADA</td><td>Acte uniforme OHADA</td><td>Workflow contentieux conforme</td></tr>
+              <tr><td>Date d'échéance par défaut</td><td>Usage professionnel</td><td>05 du mois (ou prorata temporis)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  const titles = {
+    dashboard: ["Accueil", "Tableau de bord"],
+    commercial: ["Services", "Service Commercial"],
+    caisse: ["Services", "Caisse / Secrétariat"],
+    recouvrement: ["Services", "Service Recouvrement"],
+    juridique: ["Services", "Service Juridique"],
+    proprietaires: ["Services", "Gestion des Propriétaires"],
+    biens: ["Référentiels", "Parc immobilier"],
+    conformite: ["Référentiels", "Conformité légale"],
+  };
+  document.querySelectorAll('.nav a').forEach(a => {
+    a.addEventListener('click', () => {
+      const page = a.dataset.page;
+      document.querySelectorAll('.nav a').forEach(x => x.classList.remove('active'));
+      a.classList.add('active');
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById('page-' + page).classList.add('active');
+      document.getElementById('crumb').textContent = titles[page][0];
+      document.getElementById('title').textContent = titles[page][1];
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
+</script>
+</body>
+</html>

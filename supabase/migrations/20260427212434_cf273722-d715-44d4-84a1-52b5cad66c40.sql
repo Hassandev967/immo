@@ -1,0 +1,1 @@
+ALTER VIEW public.v_loyers_retard SET (security_invoker = true);
