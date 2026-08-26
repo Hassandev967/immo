@@ -1,3 +1,3 @@
-# Welcome to your Lovable project
+# Immo project
 
 TODO: Document your project here
