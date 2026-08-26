@@ -14,7 +14,7 @@ const PB_URL = import.meta.env.VITE_PB_URL || window.location.origin;
 
 
 /* Marqueur de version — permet de vérifier en console quelle version est déployée */
-export const APP_VERSION = "immo-pb-v2";
+export const APP_VERSION = "immo-pb-v6";
 if (typeof window !== "undefined") {
   (window as any).APP_VERSION = APP_VERSION;
   console.log("%cYapGi Immobilier " + APP_VERSION + " — backend PocketBase",
@@ -43,8 +43,17 @@ async function wrap<T>(fn: () => Promise<T>, fallback: T): Promise<Result<T>> {
     const data = await fn();
     return { data, error: null };
   } catch (e: any) {
-    const message =
+    // PocketBase détaille les champs fautifs dans response.data : on les remonte
+    const details = e?.response?.data || e?.data;
+    let message =
       e?.response?.message || e?.data?.message || e?.message || "Erreur inconnue";
+
+    if (details && typeof details === "object" && Object.keys(details).length) {
+      const champs = Object.entries(details)
+        .map(([champ, info]: any) => `${champ} : ${info?.message || info?.code || "invalide"}`)
+        .join(" · ");
+      message = `${message} → ${champs}`;
+    }
     console.error("[PB]", message, e);
     return { data: fallback, error: { message } };
   }
@@ -56,6 +65,65 @@ function normalize(r: RecordModel | any) {
   const out: any = { ...r };
   if (out.created && !out.created_at) out.created_at = out.created;
   if (out.updated && !out.updated_at) out.updated_at = out.updated;
+
+  /* Les relations étendues arrivent dans `expand` sous le nom du CHAMP
+     (locataire_id). L'application les attend sous le nom de la TABLE
+     (locataires). On expose les deux formes. */
+  if (out.expand && typeof out.expand === "object") {
+    for (const [champ, valeur] of Object.entries<any>(out.expand)) {
+      const v = Array.isArray(valeur) ? valeur.map(normalize) : normalize(valeur);
+      out[champ] = v;                                    // locataire_id
+      const base = champ.replace(/_id$/, "");            // locataire
+      out[base] = v;                                     // locataire
+      out[base.endsWith("s") ? base : base + "s"] = v;   // locataires
+    }
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------------------
+   Valeurs par défaut
+   ---------------------------------------------------------------------------
+   Dans Supabase, ces colonnes avaient un DEFAULT en base. PocketBase n'en a
+   pas sur les listes de choix : le champ devient simplement obligatoire.
+   On complète donc automatiquement à la création quand rien n'est fourni.
+--------------------------------------------------------------------------- */
+const DEFAUTS: Record<string, Record<string, any>> = {
+  baux:                 { statut: "actif" },
+  biens:                { statut: "vacant" },
+  candidatures:         { statut: "en_etude" },
+  courriers_juridiques: { categorie: "mise_en_demeure", statut: "brouillon" },
+  courriers_recus:      { categorie: "reclamation", statut: "recu" },
+  documents_locataire:  { type: "bail", statut: "valide" },
+  factures_entree:      { statut: "brouillon" },
+  frais_juridiques:     { type: "huissier" },
+  mises_en_demeure:     { statut: "brouillon" },
+  modeles_courrier:     { categorie: "mise_en_demeure" },
+  modeles_relance:      { canal: "sms" },
+  paiements:            { mode: "especes" },
+  procedures:           { type: "commandement", statut: "en_cours" },
+  prospects:            { statut: "nouveau" },
+  relances_envoyees:    { canal: "sms", statut: "preparee" },
+  reversements:         { statut: "a_payer" },
+  visites:              { statut: "planifiee" },
+};
+
+function avecDefauts(collection: string, ligne: any) {
+  const out: any = { ...ligne };
+
+  /* Supabase envoie `null` pour « pas de valeur ». PocketBase le refuse sur
+     les champs numériques et les dates. À la création, on retire simplement
+     ces clés : PocketBase appliquera ses propres valeurs vides. */
+  for (const [champ, valeur] of Object.entries(out)) {
+    if (valeur === null || valeur === undefined) delete out[champ];
+  }
+
+  const d = DEFAUTS[collection];
+  if (d) {
+    for (const [champ, valeur] of Object.entries(d)) {
+      if (out[champ] === undefined || out[champ] === "") out[champ] = valeur;
+    }
+  }
   return out;
 }
 
@@ -77,14 +145,32 @@ class Query implements PromiseLike<Result<any>> {
 
   /* --- verbes --- */
   select(cols?: string) {
-    if (this.mode === "select") {
-      // "biens(*), proprietaires(nom)" -> relations à étendre
-      if (cols && cols.includes("(")) {
-        const rels = [...cols.matchAll(/([a-z_]+)\s*(?:!\w+)?\s*\(/g)]
-          .map((m) => m[1])
-          .filter((r) => r !== "count");
-        if (rels.length) this._expand = rels.join(",");
+    if (this.mode === "select" && cols && cols.includes("(")) {
+      /* Supabase joint ainsi :  locataires!baux_locataire_id_fkey(nom, prenom)
+         PocketBase utilise `expand` sur le CHAMP de relation, pas sur la table.
+         On déduit donc le champ à étendre à partir du nom de la contrainte
+         (baux_locataire_id_fkey -> locataire_id) ou du nom de la table. */
+      const champs: string[] = [];
+      const re = /([a-z_]+)\s*(?:!([a-z_]+))?\s*\(/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(cols)) !== null) {
+        const table = m[1];
+        const contrainte = m[2];
+        if (table === "count") continue;
+
+        let champ: string | null = null;
+        if (contrainte) {
+          // "baux_locataire_id_fkey" -> "locataire_id" ; "baux_bien_fk" -> "bien_id"
+          let c = contrainte.replace(/_fkey$/, "").replace(/_fk$/, "");
+          c = c.replace(new RegExp(`^${this.collection}_`), "");
+          champ = c.endsWith("_id") ? c : `${c}_id`;
+        } else {
+          // sans contrainte : on déduit du nom de table (locataires -> locataire_id)
+          champ = table.replace(/s$/, "") + "_id";
+        }
+        if (champ && !champs.includes(champ)) champs.push(champ);
       }
+      if (champs.length) this._expand = champs.join(",");
     }
     return this;
   }
@@ -108,23 +194,32 @@ class Query implements PromiseLike<Result<any>> {
     return this;
   }
 
+  /* Les noms de colonnes diffèrent : Supabase created_at -> PocketBase created */
+  private col(nom: string) {
+    if (nom === "created_at") return "created";
+    if (nom === "updated_at") return "updated";
+    return nom;
+  }
+
   /* --- filtres --- */
-  eq(col: string, val: any)   { this.filters.push(`${col} = ${esc(val)}`); return this; }
-  neq(col: string, val: any)  { this.filters.push(`${col} != ${esc(val)}`); return this; }
-  gt(col: string, val: any)   { this.filters.push(`${col} > ${esc(val)}`); return this; }
-  gte(col: string, val: any)  { this.filters.push(`${col} >= ${esc(val)}`); return this; }
-  lt(col: string, val: any)   { this.filters.push(`${col} < ${esc(val)}`); return this; }
-  lte(col: string, val: any)  { this.filters.push(`${col} <= ${esc(val)}`); return this; }
-  like(col: string, pat: string)  { this.filters.push(`${col} ~ ${esc(pat.replace(/%/g, ""))}`); return this; }
-  ilike(col: string, pat: string) { this.filters.push(`${col} ~ ${esc(pat.replace(/%/g, ""))}`); return this; }
+  eq(col: string, val: any)   { this.filters.push(`${this.col(col)} = ${esc(val)}`); return this; }
+  neq(col: string, val: any)  { this.filters.push(`${this.col(col)} != ${esc(val)}`); return this; }
+  gt(col: string, val: any)   { this.filters.push(`${this.col(col)} > ${esc(val)}`); return this; }
+  gte(col: string, val: any)  { this.filters.push(`${this.col(col)} >= ${esc(val)}`); return this; }
+  lt(col: string, val: any)   { this.filters.push(`${this.col(col)} < ${esc(val)}`); return this; }
+  lte(col: string, val: any)  { this.filters.push(`${this.col(col)} <= ${esc(val)}`); return this; }
+  like(col: string, pat: string)  { this.filters.push(`${this.col(col)} ~ ${esc(pat.replace(/%/g, ""))}`); return this; }
+  ilike(col: string, pat: string) { this.filters.push(`${this.col(col)} ~ ${esc(pat.replace(/%/g, ""))}`); return this; }
   is(col: string, val: any)   {
-    this.filters.push(val === null ? `${col} = null` : `${col} = ${esc(val)}`);
+    const c = this.col(col);
+    this.filters.push(val === null ? `${c} = null` : `${c} = ${esc(val)}`);
     return this;
   }
-  not(col: string, _op: string, val: any) { this.filters.push(`${col} != ${esc(val)}`); return this; }
+  not(col: string, _op: string, val: any) { this.filters.push(`${this.col(col)} != ${esc(val)}`); return this; }
   in(col: string, arr: any[]) {
+    const c = this.col(col);
     if (!arr || arr.length === 0) this.filters.push(`id = ""`); // ensemble vide
-    else this.filters.push("(" + arr.map((v) => `${col} = ${esc(v)}`).join(" || ") + ")");
+    else this.filters.push("(" + arr.map((v) => `${c} = ${esc(v)}`).join(" || ") + ")");
     return this;
   }
   or(expr: string) {
@@ -141,7 +236,7 @@ class Query implements PromiseLike<Result<any>> {
 
   /* --- tri / pagination --- */
   order(col: string, opts?: { ascending?: boolean }) {
-    this.sort.push((opts?.ascending === false ? "-" : "") + col);
+    this.sort.push((opts?.ascending === false ? "-" : "") + this.col(col));
     return this;
   }
   limit(n: number) { this._limit = n; return this; }
@@ -168,7 +263,7 @@ class Query implements PromiseLike<Result<any>> {
       return wrap(async () => {
         const created = [];
         for (const row of rows) {
-          const clean = { ...row };
+          const clean = avecDefauts(this.collection, { ...row });
           delete clean.created_at; delete clean.updated_at;
           if (this.mode === "upsert" && clean.id) {
             try { created.push(normalize(await col.update(clean.id, clean))); continue; }
@@ -184,7 +279,8 @@ class Query implements PromiseLike<Result<any>> {
       return wrap(async () => {
         const opts = this.options();
         const targets = await col.getFullList(opts);
-        const clean = { ...this.payload };
+        const clean: any = { ...this.payload };
+        for (const [k, v] of Object.entries(clean)) if (v === null) clean[k] = "";
         delete clean.created_at; delete clean.updated_at;
         const out = [];
         for (const t of targets) out.push(normalize(await col.update(t.id, clean)));
@@ -219,6 +315,89 @@ class Query implements PromiseLike<Result<any>> {
   /* rend la classe "awaitable" comme une promesse Supabase */
   then<R1 = Result<any>, R2 = never>(
     onfulfilled?: ((v: Result<any>) => R1 | PromiseLike<R1>) | null,
+    onrejected?: ((r: any) => R2 | PromiseLike<R2>) | null
+  ): PromiseLike<R1 | R2> {
+    return this.run().then(onfulfilled, onrejected);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Vue « loyers en retard »
+   ---------------------------------------------------------------------------
+   Dans Supabase c'était une vue SQL (v_loyers_retard). PocketBase n'a pas de
+   vues : on la recalcule ici à partir des baux actifs et des paiements.
+--------------------------------------------------------------------------- */
+
+class VueLoyersRetard implements PromiseLike<Result<any[]>> {
+  private sortDesc = true;
+  private _limit = 0;
+
+  select(_cols?: string) { return this; }
+  order(_col: string, opts?: { ascending?: boolean }) {
+    this.sortDesc = opts?.ascending === false || opts?.ascending === undefined;
+    return this;
+  }
+  eq() { return this; }
+  limit(n: number) { this._limit = n; return this; }
+
+  private async run(): Promise<Result<any[]>> {
+    return wrap(async () => {
+      const baux = await pb.collection("baux").getFullList({
+        filter: 'statut = "actif"',
+        expand: "locataire_id,bien_id",
+      });
+      let paiements: any[] = [];
+      try { paiements = await pb.collection("paiements").getFullList(); } catch { /* aucune */ }
+
+      const maintenant = new Date();
+      const lignes = baux.map((b: any) => {
+        const loyer = Number(b.loyer_mensuel) || 0;
+
+        // total déjà réglé pour ce bail
+        const regle = paiements
+          .filter((p) => p.bail_id === b.id)
+          .reduce((s, p) => s + (Number(p.montant) || 0), 0);
+
+        // nombre de mois écoulés depuis le début du bail
+        const debut = b.date_debut ? new Date(b.date_debut) : null;
+        let moisEcoules = 0;
+        if (debut && !isNaN(debut.getTime())) {
+          moisEcoules =
+            (maintenant.getFullYear() - debut.getFullYear()) * 12 +
+            (maintenant.getMonth() - debut.getMonth()) + 1;
+          if (moisEcoules < 0) moisEcoules = 0;
+        }
+
+        const dû = loyer * moisEcoules;
+        const impaye = Math.max(0, dû - regle);
+        const moisRetard = loyer > 0 ? Math.floor(impaye / loyer) : 0;
+
+        // pénalités : jours écoulés depuis le début du mois courant
+        const joursPenalite = moisRetard > 0 ? maintenant.getDate() : 0;
+
+        return {
+          bail_id: b.id,
+          reference: b.reference ?? null,
+          loyer_mensuel: loyer,
+          mois_retard: moisRetard,
+          jours_penalite_mois_courant: joursPenalite,
+          taux_penalite_journalier: Number(b.taux_penalite_journalier) || 0,
+          transfert_juridique_propose: moisRetard >= 3,
+          locataires: b.expand?.locataire_id ? normalize(b.expand.locataire_id) : undefined,
+          biens: b.expand?.bien_id ? normalize(b.expand.bien_id) : undefined,
+        };
+      })
+      .filter((l) => (l.mois_retard || 0) > 0);   // seuls les baux en retard
+
+      lignes.sort((a, b) =>
+        this.sortDesc ? (b.mois_retard - a.mois_retard) : (a.mois_retard - b.mois_retard)
+      );
+      return this._limit ? lignes.slice(0, this._limit) : lignes;
+    }, []);
+  }
+
+  then<R1 = Result<any[]>, R2 = never>(
+    onfulfilled?: ((v: Result<any[]>) => R1 | PromiseLike<R1>) | null,
     onrejected?: ((r: any) => R2 | PromiseLike<R2>) | null
   ): PromiseLike<R1 | R2> {
     return this.run().then(onfulfilled, onrejected);
@@ -379,15 +558,35 @@ async function rpc(name: string, params: any = {}) {
       return { data: u, error: null };
     }
 
-    /* Liste des utilisateurs avec leur rôle. */
+    /* Liste des utilisateurs avec leurs rôles.
+       L'écran d'administration attend : id, nom, prenom, telephone, roles[] */
     case "get_users_with_roles":
       return wrap(async () => {
         const users = await pb.collection("users").getFullList({ sort: "created" });
         let roles: any[] = [];
-        try { roles = await pb.collection("user_roles").getFullList(); } catch { /* table absente */ }
+        try { roles = await pb.collection("user_roles").getFullList(); } catch { /* collection absente */ }
+
         return users.map((u: any) => {
-          const r = roles.find((x: any) => x.user_id === u.id);
-          return { ...normalize(u), user_id: u.id, role: r?.role ?? null };
+          // tous les rôles de cet utilisateur
+          const mesRoles = roles
+            .filter((r: any) => r.user_id === u.id)
+            .map((r: any) => r.role)
+            .filter(Boolean);
+
+          // le nom peut venir de champs différents selon la façon dont le compte a été créé
+          const nomComplet = (u.name || "").trim();
+          const [prenomAuto, ...resteAuto] = nomComplet.split(" ");
+
+          return {
+            ...normalize(u),
+            id: u.id,
+            user_id: u.id,
+            email: u.email,
+            nom: u.nom || (resteAuto.length ? resteAuto.join(" ") : nomComplet) || u.username || u.email || "—",
+            prenom: u.prenom || (resteAuto.length ? prenomAuto : ""),
+            telephone: u.telephone || null,
+            roles: mesRoles,
+          };
         });
       }, []);
 
@@ -420,16 +619,25 @@ const functions = {
     if (name === "admin-create-user") {
       const b = opts?.body || {};
       return wrap(async () => {
+        const nomComplet = [b.prenom, b.nom].filter(Boolean).join(" ").trim();
         const rec = await pb.collection("users").create({
           email: b.email,
           password: b.password,
           passwordConfirm: b.password,
           emailVisibility: true,
-          name: b.nom || b.name || b.username || "",
-          username: b.username || undefined,
+          verified: true,
+          name: nomComplet || b.username || b.email,
+          username: b.username || (b.email || "").split("@")[0],
+          nom: b.nom || "",
+          prenom: b.prenom || "",
+          telephone: b.telephone || "",
         });
-        if (b.role) {
-          try { await pb.collection("user_roles").create({ user_id: rec.id, role: b.role }); } catch {}
+
+        // rôles : le formulaire en envoie un tableau
+        const roles: string[] = Array.isArray(b.roles) ? b.roles : (b.role ? [b.role] : []);
+        for (const r of roles) {
+          try { await pb.collection("user_roles").create({ user_id: rec.id, role: r }); }
+          catch (e) { console.error("Rôle non attribué :", r, e); }
         }
         return { user: normalize(rec) };
       }, null);
@@ -444,7 +652,13 @@ const functions = {
 --------------------------------------------------------------------------- */
 
 export const supabase = {
-  from: (table: string) => new Query(table),
+  from: (table: string) => {
+    /* `profiles` n'existe pas dans PocketBase : les profils sont dans `users`. */
+    if (table === "profiles") return new Query("users");
+    /* `v_loyers_retard` est une vue SQL calculée : on la reconstruit côté client. */
+    if (table === "v_loyers_retard") return new VueLoyersRetard() as any;
+    return new Query(table);
+  },
   auth,
   storage,
   rpc,
